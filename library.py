@@ -1,36 +1,82 @@
 from mutagen.easyid3 import EasyID3
 from pathlib import Path
+from dataclasses import dataclass, field
 import global_var as gb
-import os
 import shutil
 
 path = gb.path
-lib = gb.library
+
+@dataclass
+class Track:
+    title: str
+    artist: str
+    album: str
+    path: str
+    track_id: str = field(default_factory=str)
+
+    def __repr__(self):
+        return(self.title + "--" + self.artist + "--" + self.album)
+
+@dataclass
+class Album:
+    title: str
+    artist: str
+    year: int
+    album_id: str = field(default_factory=str)
+
+@dataclass
+class Lib:
+    artists: list = field(default_factory=list)
+    albums: dict = field(default_factory=dict)
+    tracks: dict = field(default_factory=dict)
+
+lib = Lib()
 
 def sync_library():
+    seen_ids = {} 
+
     for file in Path(path).rglob("*"):
+        if Path(gb.local_path).name in file.parts: continue
         if file.is_file() and file.suffix in [".mp3"]:
-            try:
-                audio = EasyID3(file)
-            except Exception:
-                continue
+            audio = EasyID3(file)
 
-            artist = audio.get("artist", [None])[0]
-            album = audio.get("album", [None])[0]
-            title = audio.get("title", [None])[0]
+            artist = audio.get("artist", ["Unknown"])[0]
+            album = audio.get("album", ["Unknown"])[0]
+            title = audio.get("title", ["Unknown"])[0]
+            year = audio.get("year", ["Unknown"])[0]
 
-            if not artist in lib.keys():
-                lib.update({artist : {album : [title]}})
-            elif not album in lib[artist].keys():
-                lib[artist].update({album : [title]})
-            elif not title in lib[artist][album]:
-                lib[artist][album].append(title)
-                lib[artist][album].append(file)
+            track_id = gb.gen_track_id(file)
+            album_id = gb.gen_album_id(artist, album)
+
+            if track_id in seen_ids:
+                print(f"COLLISION on {track_id}:")
+                print(f"  existing: {seen_ids[track_id]}")
+                print(f"  new:      {file}")
+            seen_ids.setdefault(track_id, []).append(str(file))
+
+            if not artist in lib.artists: lib.artists.append(artist)
+            if not album_id in lib.albums.keys(): lib.albums[album_id] = Album(album, artist, year)
+            lib.tracks[track_id] = Track(title, artist, album, file)
+
+    gb.lib = lib
+            
 
 def organize_folder():
-    if not Path(gb.local_path).exists() : Path(gb.local_path).mkdir()
-    for i in lib.keys():
-       Path(gb.local_path+"/"+i).mkdir()
+    for i in lib.albums.items():
+        curr_path = gb.local_path + "/" + i[1].artist + "/" + i[1].title
+        Path(curr_path).mkdir(parents=True, exist_ok=True)
+    
+    for i in lib.tracks.items():
+        src = Path(i[1].path)
+        dst_dir = Path(gb.local_path + "/" + i[1].artist + "/" + i[1].album)
+        dst_file = dst_dir / src.name
+
+        if src.parent != dst_dir:
+            if dst_file.exists():
+                print(f"{src.name} already exists")
+            else:
+                print(i[1])
+                shutil.move(src, dst_dir)
        
 
 
