@@ -12,17 +12,13 @@ class Track:
     artist: str
     album: str
     path: str
-    track_id: str = field(default_factory=str)
-
-    def __repr__(self):
-        return(self.title + "--" + self.artist + "--" + self.album)
 
 @dataclass
 class Album:
     title: str
     artist: str
     year: int
-    album_id: str = field(default_factory=str)
+    tracks: list
 
 @dataclass
 class Lib:
@@ -48,18 +44,15 @@ def sync_library():
             track_id = gb.gen_track_id(file)
             album_id = gb.gen_album_id(artist, album)
 
-            if track_id in seen_ids:
-                print(f"COLLISION on {track_id}:")
-                print(f"  existing: {seen_ids[track_id]}")
-                print(f"  new:      {file}")
-            seen_ids.setdefault(track_id, []).append(str(file))
-
             if not artist in lib.artists: lib.artists.append(artist)
-            if not album_id in lib.albums.keys(): lib.albums[album_id] = Album(album, artist, year)
+
+            if album_id in lib.albums.keys(): lib.albums[album_id].tracks.append(track_id)
+            else : lib.albums[album_id] = Album(album, artist, year, [track_id])
+
             lib.tracks[track_id] = Track(title, artist, album, file)
 
     gb.lib = lib
-            
+    
 
 def organize_folder():
     for i in lib.albums.items():
