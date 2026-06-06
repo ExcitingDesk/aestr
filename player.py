@@ -1,6 +1,7 @@
 import pygame
 import global_var as gb
 from track_queue import Queue
+import threading
 
 class Player:
     def __init__(self):
@@ -13,6 +14,15 @@ class Player:
             print("Audio init failed! : ", e)
             return
 
+        threading.Thread(target=self._event_loop, daemon=True).start()
+
+    def _event_loop(self):
+        import time
+        while True:
+            if not self.paused and self.queue.playing != "" and not pygame.mixer.music.get_busy():
+                self.skip()
+            time.sleep(0.1)
+
     def play(self, track_id):
         track = gb.lib.tracks[track_id]
 
@@ -23,15 +33,16 @@ class Player:
         self.paused = False
 
     def skip(self):
-        if not self.queue or self.playing not in self.queue:
-            self.stop()
-            return
-        current_index = self.queue.index(self.playing)
-        if current_index + 1 >= len(self.queue):
-            self.stop()
-            return
-        self.play(self.queue[current_index + 1])
-
+        if self.queue.playing != "" and self.queue.current_queue != []:
+            curr_queue = self.queue.current_queue
+            playing_ind = curr_queue.index(self.queue.playing)
+            try:
+                self.queue.playing = curr_queue[playing_ind+1]
+            except IndexError as e:
+                self.stop()
+            else:
+                self.play(self.queue.playing)
+        
     def pause(self):
         if not self.paused and pygame.mixer.music.get_busy():
             pygame.mixer.music.pause()
@@ -44,6 +55,6 @@ class Player:
 
     def stop(self):
         pygame.mixer.music.stop()
-        self.playing = ""
+        self.queue.playing = ""
         self.paused = False
     

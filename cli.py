@@ -1,29 +1,46 @@
 import library
 import global_var as gb
 from player import Player
+import random
 
-player = Player()
+lauf = Player()
+library.sync_library()
+library.organize_folder()
+track_ids = list(gb.lib.tracks.keys())
+random.shuffle(track_ids)
+lauf.queue.set_queue(track_ids)
 
-tracks = list(gb.lib.tracks.keys())
-if not tracks:
-    print("No tracks found in library.")
-    exit()
 
-track_id = tracks[0]
-print(f"Playing: {gb.lib.tracks[track_id].title} — {gb.lib.tracks[track_id].artist}")
-player.play(track_id)
+# SEARCH PROTOTYPE -
+# for i in gb.lib.tracks.keys():
+#     if gb.lib.tracks[i].title == "Mon mal persiste":
+#         print(i) 
+
+
+# TO FIX : WHEN LAUNCHED WITH A LOADED QUEUE MUSIC 
+# STARTS PLAYING AUTOMATICALLY
 
 while True:
-    cmd = input("\n[p]ause  [u]npause  [s]top  [q]uit > ").strip().lower()
-    if cmd == "p":
-        player.pause()
-        print("Paused.")
-    elif cmd == "u":
-        player.unpause()
-        print("Resumed.")
-    elif cmd == "s":
-        player.stop()
-        print("Stopped.")
-    elif cmd == "q":
-        player.stop()
-        break
+    cmd = input()
+    if cmd == "show":
+        for i in track_ids:
+            print(i)
+
+    if cmd == "next":
+        lauf.queue.enqueue(["7bc0dcd7f6fde3b0"])
+
+    if cmd == "play":
+        lauf.queue.playing = lauf.queue.current_queue[-1]
+        lauf.play(lauf.queue.playing)
+
+    if cmd == "queue":
+        lauf.play(lauf.queue.playing)
+    
+    if cmd == "pause":
+        lauf.pause()
+
+    if cmd == "resume":
+        lauf.unpause()
+    
+    if cmd == "skip":
+        lauf.skip()

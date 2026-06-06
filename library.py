@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 import global_var as gb
 import shutil
 
+# organize_folder depends on sync_library to run first
+
 path = gb.path
 
 @dataclass
@@ -22,19 +24,25 @@ class Album:
 
 @dataclass
 class Lib:
-    artists: list = field(default_factory=list)
+    artists: dict = field(default_factory=dict)
     albums: dict = field(default_factory=dict)
     tracks: dict = field(default_factory=dict)
 
-lib = Lib()
+
 
 def sync_library():
+    lib = Lib()
     seen_ids = {} 
 
     for file in Path(path).rglob("*"):
-        if Path(gb.local_path).name in file.parts: continue
+        # if Path(gb.local_path).name in file.parts: continue
         if file.is_file() and file.suffix in [".mp3"]:
-            audio = EasyID3(file)
+
+            try:
+                audio = EasyID3(file)
+            except Exception as e:
+                print(f"Skipped {file} -- {e}")
+                next
 
             artist = audio.get("artist", ["Unknown"])[0]
             album = audio.get("album", ["Unknown"])[0]
@@ -44,17 +52,18 @@ def sync_library():
             track_id = gb.gen_track_id(file)
             album_id = gb.gen_album_id(artist, album)
 
-            if not artist in lib.artists: lib.artists.append(artist)
+            if not artist in lib.artists.keys(): lib.artists[artist]=[album]
+            else: lib.artists[artist].append(album) 
 
             if album_id in lib.albums.keys(): lib.albums[album_id].tracks.append(track_id)
             else : lib.albums[album_id] = Album(album, artist, year, [track_id])
 
-            lib.tracks[track_id] = Track(title, artist, album, file)
-
-    gb.lib = lib
-    
+            if not track_id in lib.tracks : lib.tracks[track_id] = Track(title, artist, album, file)
+            
+    gb.lib = lib    
 
 def organize_folder():
+    lib = gb.lib
     for i in lib.albums.items():
         curr_path = gb.local_path + "/" + i[1].artist + "/" + i[1].title
         Path(curr_path).mkdir(parents=True, exist_ok=True)
@@ -70,8 +79,3 @@ def organize_folder():
             else:
                 print(i[1])
                 shutil.move(src, dst_dir)
-       
-
-
-sync_library()
-organize_folder()

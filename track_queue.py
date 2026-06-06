@@ -5,6 +5,7 @@ class Queue:
 
     def set_queue(self, queue:list):
         self.current_queue = queue
+        self.playing = queue[0]
     
     def enqueue(self, trackID_list:list):
         for id in trackID_list: self.current_queue.append(id) 
