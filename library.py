@@ -3,36 +3,58 @@ from pathlib import Path
 from dataclasses import dataclass, field
 import global_var as gb
 import shutil
+import lib_db as datab
 
 # organize_folder depends on sync_library to run first
 
 path = gb.path
 
+def gen_id(kind: str, *, file_path=None, artist="", album="") -> str:
+    
+    def _hash(data: bytes, n: int = 12) -> str:
+        return hashlib.sha256(data).hexdigest()[:n]
+
+    match kind:
+        case "track":
+            audio = MP3(file_path)
+            offset = audio.info.frame_offset
+            with open(file_path, "rb") as f:
+                f.seek(offset)
+                chunk = f.read(64_000)
+            audio_hash = hashlib.sha256(chunk).hexdigest()[:12]
+            album_hash = hashlib.sha256(album.strip().lower().encode()).hexdigest()[:4]
+            return audio_hash + album_hash
+        case "album":
+            key = f"{artist.strip().lower()}|{album.strip().lower()}"
+            return _hash(key.encode())
+        case "artist":
+            return _hash(artist.strip().lower().encode())
+        case _:
+            raise ValueError(f"Unknown id kind: {kind!r}")
+
 @dataclass
-class Track:
-    title: str
-    artist: str
-    album: str
-    path: str
+class Artist:
+    id: str
+    name: str
 
 @dataclass
 class Album:
+    id: str
     title: str
-    artist: str
-    year: int
-    tracks: list
+    year: int = field(default_factory=2000)
+    artist_id: str
 
 @dataclass
-class Lib:
-    artists: dict = field(default_factory=dict)
-    albums: dict = field(default_factory=dict)
-    tracks: dict = field(default_factory=dict)
-
+class Track:
+    id: str
+    title: str
+    track_number: int = field(default_factory=0)
+    path: str
+    album_id : str
 
 
 def sync_library():
-    lib = Lib()
-    seen_ids = {} 
+    artists, albums, tracks = {}, {}, {}
 
     for file in Path(path).rglob("*"):
         # if Path(gb.local_path).name in file.parts: continue
@@ -44,26 +66,35 @@ def sync_library():
                 print(f"Skipped {file} -- {e}")
                 next
 
+            title = audio.get("title", ["Unknown"])[0]
             artist = audio.get("artist", ["Unknown"])[0]
             album = audio.get("album", ["Unknown"])[0]
-            title = audio.get("title", ["Unknown"])[0]
-            year = audio.get("year", ["Unknown"])[0]
+            year = audio.get("year", [2000])[0]
+            track_num = audio.get("tracknumber", [0])[0]
 
-            track_id = gb.gen_track_id(file)
-            album_id = gb.gen_album_id(artist, album)
+            track_id = gen_id("track", file_path=file, album=album)
+            artist_id = gen_id("artist", artist=artist)
+            album_id = gen_id("album", artist=artist, album=album)
 
-            if not artist in lib.artists.keys(): lib.artists[artist]=[album]
-            else: lib.artists[artist].append(album) 
-
-            if album_id in lib.albums.keys(): lib.albums[album_id].tracks.append(track_id)
-            else : lib.albums[album_id] = Album(album, artist, year, [track_id])
-
-            if not track_id in lib.tracks : lib.tracks[track_id] = Track(title, artist, album, file)
+            if not artist_id in artists.keys(): artists[artist_id] = Artist(artist_id, artist)
+            if not album_id in albums.keys(): albums[album_id] = Album(album_id, album, year, artist_id)
+            if not track_id in tracks.keys(): tracks[track_id] = Track(track_id, title, track_num, file, album_id)
             
-    gb.lib = lib    
+            artists = [(i.id, i.name) for i in artists.values()]
+            albums = [(i.id, i.title, i.year, i.artist_id) for i in albums.values()]
+            tracks = [(i.id, i.title, i.track_number, i.path, i.album_id) for i in tracks.values()]
 
+            
+            # for artist in artists.values():
+            #     datab.add_artist(artist)
+            # for album in albums.values():
+            #     datab.add_album(album)
+            # for track in tracks.values():
+            #     datab.add_track(track)
+
+            
 def organize_folder():
-    lib = gb.lib
+    # QUERY FROM DB
     for i in lib.albums.items():
         curr_path = gb.local_path + "/" + i[1].artist + "/" + i[1].title
         Path(curr_path).mkdir(parents=True, exist_ok=True)
