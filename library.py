@@ -1,9 +1,11 @@
 from mutagen.easyid3 import EasyID3
+from mutagen.mp3 import MP3
 from pathlib import Path
 from dataclasses import dataclass, field
 import global_var as gb
 import shutil
 import lib_db as datab
+import hashlib
 
 # organize_folder depends on sync_library to run first
 
@@ -40,18 +42,17 @@ class Artist:
 @dataclass
 class Album:
     id: str
-    title: str
-    year: int = field(default_factory=2000)
+    title: str    
     artist_id: str
+    year: int = field(default=2000)
 
 @dataclass
 class Track:
     id: str
     title: str
-    track_number: int = field(default_factory=0)
     path: str
     album_id : str
-
+    track_number: int = field(default=0)
 
 def sync_library():
     artists, albums, tracks = {}, {}, {}
@@ -64,7 +65,7 @@ def sync_library():
                 audio = EasyID3(file)
             except Exception as e:
                 print(f"Skipped {file} -- {e}")
-                next
+                continue
 
             title = audio.get("title", ["Unknown"])[0]
             artist = audio.get("artist", ["Unknown"])[0]
@@ -77,20 +78,18 @@ def sync_library():
             album_id = gen_id("album", artist=artist, album=album)
 
             if not artist_id in artists.keys(): artists[artist_id] = Artist(artist_id, artist)
-            if not album_id in albums.keys(): albums[album_id] = Album(album_id, album, year, artist_id)
-            if not track_id in tracks.keys(): tracks[track_id] = Track(track_id, title, track_num, file, album_id)
+            if not album_id in albums.keys(): albums[album_id] = Album(album_id, album, artist_id, year)
+            if not track_id in tracks.keys(): tracks[track_id] = Track(track_id, title, str(file), album_id, track_num)
             
-            artists = [(i.id, i.name) for i in artists.values()]
-            albums = [(i.id, i.title, i.year, i.artist_id) for i in albums.values()]
-            tracks = [(i.id, i.title, i.track_number, i.path, i.album_id) for i in tracks.values()]
+    artists = [(i.id, i.name) for i in artists.values()]
+    albums = [(i.id, i.title, i.year, i.artist_id) for i in albums.values()]
+    tracks = [(i.id, i.title, i.track_number, i.path, i.album_id) for i in tracks.values()]
 
+    datab.add_batch("artists", artists)
+    datab.add_batch("albums", albums)
+    datab.add_batch("tracks", tracks)
             
-            # for artist in artists.values():
-            #     datab.add_artist(artist)
-            # for album in albums.values():
-            #     datab.add_album(album)
-            # for track in tracks.values():
-            #     datab.add_track(track)
+    
 
             
 def organize_folder():
@@ -110,3 +109,6 @@ def organize_folder():
             else:
                 print(i[1])
                 shutil.move(src, dst_dir)
+
+datab.setup_db()
+sync_library()
