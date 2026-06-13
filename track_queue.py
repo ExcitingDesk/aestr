@@ -1,3 +1,5 @@
+import random
+
 class Queue:
     def __init__(self):
         self.current_queue = []
@@ -17,5 +19,6 @@ class Queue:
             playing+=1
     
     def shuffle(self):
-        #   Fisher-Yates shuffle algorithm
-        pass
+        for i in range(len(self.current_queue) - 1, 0, -1):
+            j = random.randint(0, i)
+            self.current_queue[i], self.current_queue[j] = self.current_queue[j], self.current_queue[i]

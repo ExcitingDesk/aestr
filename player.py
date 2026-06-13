@@ -1,5 +1,6 @@
 import pygame
 import global_var as gb
+import lib_db as datab
 from track_queue import Queue
 import threading
 
@@ -24,9 +25,9 @@ class Player:
             time.sleep(0.1)
 
     def play(self, track_id):
-        track = gb.lib.tracks[track_id]
+        track = datab.get_track_info(track_id)
 
-        pygame.mixer.music.load(track.path)
+        pygame.mixer.music.load(track["path"])
         pygame.mixer.music.play()
 
         self.queue.playing = track_id

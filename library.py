@@ -7,12 +7,10 @@ import shutil
 import lib_db as datab
 import hashlib
 
-# organize_folder depends on sync_library to run first
-
 path = gb.path
 
 def gen_id(kind: str, *, file_path=None, artist="", album="") -> str:
-    
+
     def _hash(data: bytes, n: int = 12) -> str:
         return hashlib.sha256(data).hexdigest()[:n]
 
@@ -42,7 +40,7 @@ class Artist:
 @dataclass
 class Album:
     id: str
-    title: str    
+    title: str
     artist_id: str
     year: int = field(default=2000)
 
@@ -58,7 +56,6 @@ def sync_library():
     artists, albums, tracks = {}, {}, {}
 
     for file in Path(path).rglob("*"):
-        # if Path(gb.local_path).name in file.parts: continue
         if file.is_file() and file.suffix in [".mp3"]:
 
             try:
@@ -80,7 +77,19 @@ def sync_library():
             if not artist_id in artists.keys(): artists[artist_id] = Artist(artist_id, artist)
             if not album_id in albums.keys(): albums[album_id] = Album(album_id, album, artist_id, year)
             if not track_id in tracks.keys(): tracks[track_id] = Track(track_id, title, str(file), album_id, track_num)
-            
+
+    for track in tracks.values():
+        album = albums[track.album_id]
+        artist = artists[album.artist_id]
+
+        dst_dir = Path(gb.local_path) / artist.name / album.title
+        dst_file = dst_dir / Path(track.path).name
+
+        if Path(track.path).parent != dst_dir:
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(track.path, dst_file)
+            track.path = str(dst_file)
+
     artists = [(i.id, i.name) for i in artists.values()]
     albums = [(i.id, i.title, i.year, i.artist_id) for i in albums.values()]
     tracks = [(i.id, i.title, i.track_number, i.path, i.album_id) for i in tracks.values()]
@@ -88,27 +97,3 @@ def sync_library():
     datab.add_batch("artists", artists)
     datab.add_batch("albums", albums)
     datab.add_batch("tracks", tracks)
-            
-    
-
-            
-def organize_folder():
-    # QUERY FROM DB
-    for i in lib.albums.items():
-        curr_path = gb.local_path + "/" + i[1].artist + "/" + i[1].title
-        Path(curr_path).mkdir(parents=True, exist_ok=True)
-    
-    for i in lib.tracks.items():
-        src = Path(i[1].path)
-        dst_dir = Path(gb.local_path + "/" + i[1].artist + "/" + i[1].album)
-        dst_file = dst_dir / src.name
-
-        if src.parent != dst_dir:
-            if dst_file.exists():
-                print(f"{src.name} already exists")
-            else:
-                print(i[1])
-                shutil.move(src, dst_dir)
-
-datab.setup_db()
-sync_library()
