@@ -1,25 +1,20 @@
-import pygame
+from interfaces.audio_backend import AudioBackend
 import lib_db as datab
 from track_queue import Queue
 import threading
 
 class Player:
-    def __init__(self):
+    def __init__(self, backend: AudioBackend):
         self.queue = Queue()
         self.paused = False
 
-        try:
-            pygame.mixer.init()
-        except pygame.error as e:
-            print("Audio init failed! : ", e)
-            return
-
+        self.audioBackend = backend
         threading.Thread(target=self._event_loop, daemon=True).start()
 
     def _event_loop(self):
         import time
         while True:
-            if not self.paused and self.queue.playing != "" and not pygame.mixer.music.get_busy():
+            if not self.paused and self.queue.playing != "" and not self.audioBackend.is_busy():
                 self.skip()
             time.sleep(0.1)
 
@@ -28,8 +23,8 @@ class Player:
         if track is None:
             return
 
-        pygame.mixer.music.load(track["path"])
-        pygame.mixer.music.play()
+        self.audioBackend.load(track["path"])
+        self.audioBackend.play()
 
         self.queue.playing = track_id
         self.paused = False
@@ -61,13 +56,13 @@ class Player:
                 self.play(self.queue.playing)
         
     def pause(self):
-        if not self.paused and pygame.mixer.music.get_busy():
-            pygame.mixer.music.pause()
+        if not self.paused and self.audioBackend.is_busy():
+            self.audioBackend.pause()
             self.paused = True
 
     def unpause(self):
         if self.paused:
-            pygame.mixer.music.unpause()
+            self.audioBackend.unpause()
             self.paused = False
 
     def play_album(self, track_ids):
@@ -86,7 +81,7 @@ class Player:
         self.play(first)
 
     def stop(self):
-        pygame.mixer.music.stop()
+        self.audioBackend.stop()
         self.queue.playing = ""
         self.paused = False
     

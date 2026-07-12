@@ -13,9 +13,10 @@ class AestrCLI(cmd.Cmd):
     intro = "Type 'help' for commands."
     prompt = "(aestr) "
 
-    def __init__(self):
+    def __init__(self, ctx):
         super().__init__()
-        self.player = Player()
+        self.ctx = ctx
+        self.player = Player(self.ctx.audio_backend)
         self.mode = "main"
         self.current_items = []
         self.page = 0
@@ -473,9 +474,9 @@ class AestrCLI(cmd.Cmd):
 
 
 def main():
-    bootstrap.bootstrap()
+    ctx = bootstrap.bootstrap()
     try:
-        AestrCLI().cmdloop()
+        AestrCLI(ctx).cmdloop()
     except KeyboardInterrupt:
         print()
         bootstrap.shutdown()
