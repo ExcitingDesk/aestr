@@ -2,12 +2,9 @@ from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
 from pathlib import Path
 from dataclasses import dataclass, field
-import global_var as gb
 import shutil
 import lib_db as datab
 import hashlib
-
-path = gb.path
 
 def gen_id(kind: str, *, file_path=None, artist="", album="") -> str:
 
@@ -53,6 +50,11 @@ class Track:
     track_number: int = field(default=0)
 
 def sync_library():
+    lib_path_row = datab.get_lib_path()
+    local_path_row = datab.get_local_path()
+    path = lib_path_row["lib_path"] if lib_path_row else ""
+    local_path = local_path_row["local_path"] if local_path_row else ""
+
     artists, albums, tracks = {}, {}, {}
 
     for file in Path(path).rglob("*"):
@@ -67,7 +69,7 @@ def sync_library():
             title = audio.get("title", ["Unknown"])[0]
             artist = audio.get("artist", ["Unknown"])[0]
             album = audio.get("album", ["Unknown"])[0]
-            year = audio.get("year", [2000])[0]
+            year = audio.get("date", [2000])[0]
             track_num = audio.get("tracknumber", [0])[0]
 
             track_id = gen_id("track", file_path=file, album=album)
@@ -82,7 +84,7 @@ def sync_library():
         album = albums[track.album_id]
         artist = artists[album.artist_id]
 
-        dst_dir = Path(gb.local_path) / artist.name / album.title
+        dst_dir = Path(local_path) / artist.name / album.title
         dst_file = dst_dir / Path(track.path).name
 
         if Path(track.path).parent != dst_dir:

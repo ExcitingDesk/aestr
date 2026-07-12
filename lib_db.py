@@ -1,13 +1,14 @@
 import sqlite3
-import global_var as gb
 
-def init_db():
+_DB_PATH = "/home/adam/Music/Aestr/aestr.db"
+
+def init_conn():
     global conn
-    conn = sqlite3.connect(gb.db_path)
+    conn = sqlite3.connect(_DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
 
-def shut_db():
+def shut_conn():
     conn.close()
 
 def setup_db():    
@@ -30,9 +31,28 @@ def setup_db():
                         path TEXT NOT NULL UNIQUE,
                         album_id TEXT NOT NULL,
                         FOREIGN KEY (album_id) REFERENCES albums(id));
-                    """)         
+
+                        CREATE TABLE IF NOT EXISTS user_conf
+                        (lib_path TEXT NOT NULL,
+                        local_path TEXT)
+                    """)  
     conn.commit()
 
+def user_conf():
+    cursor = conn.cursor()
+    paths = ("/home/adam/Music", "/home/adam/Music/Aestr")
+    cursor.execute("""INSERT OR REPLACE INTO 
+                          user_conf (lib_path, local_path) VALUES (?, ?)"""
+                          ,paths)
+    conn.commit()
+    
+def get_lib_path():
+    cursor = conn.cursor()
+    return cursor.execute("SELECT lib_path FROM user_conf").fetchone()
+
+def get_local_path():
+    cursor = conn.cursor()
+    return cursor.execute("SELECT local_path FROM user_conf").fetchone()
 
 def build_cache():
     cursor = conn.cursor()
@@ -75,6 +95,8 @@ def get_track_info(track_id):
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM tracks WHERE id = ?", (track_id,))
     row = cursor.fetchone()
+    if row is None:
+        return None
     return {"title": row["title"], "num": row["track_number"], "path": row["path"], "album": row["album_id"]}
 
 
@@ -82,6 +104,8 @@ def get_album_info(album_id):
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM albums WHERE id = ?", (album_id,))
     row = cursor.fetchone()
+    if row is None:
+        return None
     return {"title": row["title"], "year": row["year"], "artist": row["artist_id"]}
 
 
@@ -89,6 +113,8 @@ def get_artist_info(artist_id):
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM artists WHERE id = ?", (artist_id,))
     row = cursor.fetchone()
+    if row is None:
+        return None
     return {"name": row["name"]}
 
 

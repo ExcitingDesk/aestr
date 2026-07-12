@@ -58,6 +58,14 @@ def search(query, search_type):
 
         case _:
             raise ValueError(f"Unknown query type: {search_type!r}")
+
+
+def all_albums():
+    return sorted(_album_cache.items(), key=lambda x: x[1].casefold())
+
+
+def all_tracks():
+    return sorted(_track_cache.items(), key=lambda x: x[1].casefold())
     
 
     
