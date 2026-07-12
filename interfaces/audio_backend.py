@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 class AudioBackend(ABC):
+    
     @abstractmethod
     def load(self, path):
         ...

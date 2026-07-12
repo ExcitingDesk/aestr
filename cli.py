@@ -287,7 +287,7 @@ class AestrCLI(cmd.Cmd):
     def do_sync(self, arg):
         """sync — rescan your music library"""
         print("Syncing…")
-        library.sync_library()
+        library.sync_library(self.ctx.library_source)
         search.init_cache()
         print("Done.")
 

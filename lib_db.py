@@ -48,11 +48,13 @@ def user_conf():
     
 def get_lib_path():
     cursor = conn.cursor()
-    return cursor.execute("SELECT lib_path FROM user_conf").fetchone()
+    lib_path_row = cursor.execute("SELECT lib_path FROM user_conf").fetchone()
+    return lib_path_row["lib_path"] if lib_path_row else ""
 
 def get_local_path():
     cursor = conn.cursor()
-    return cursor.execute("SELECT local_path FROM user_conf").fetchone()
+    local_path_row = cursor.execute("SELECT local_path FROM user_conf").fetchone()
+    return local_path_row["local_path"] if local_path_row else ""
 
 def build_cache():
     cursor = conn.cursor()

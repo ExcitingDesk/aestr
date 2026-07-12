@@ -1,6 +1,7 @@
 import pygame
+from interfaces.audio_backend import AudioBackend
 
-class pygameAudioBackEnd:
+class pygameAudioBackEnd(AudioBackend):
     def __init__(self):
         try:
             pygame.mixer.init()
