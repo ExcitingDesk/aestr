@@ -1,5 +1,9 @@
 from abc import ABC, abstractmethod
 
+@dataclass
+class TrackCandidate:
+    uri: str
+
 class LibrarySource(ABC):
 
     @abstractmethod
@@ -7,5 +11,5 @@ class LibrarySource(ABC):
         ...
 
     @abstractmethod
-    def stage(self):
+    def stage(self, track, album_title, artist_name):
         ...

@@ -2,14 +2,10 @@ from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
 from pathlib import Path
 from dataclasses import dataclass, field
-from interfaces.library_source import LibrarySource
+from interfaces.library_source import LibrarySource, TrackCandidate
 import shutil
 import lib_db as datab
 import hashlib
-
-@dataclass
-class TrackCandidate:
-    uri: str
 
 @dataclass
 class Artist:
@@ -60,7 +56,7 @@ def meta_extract(candidate: TrackCandidate):
         audio = EasyID3(file)
     except Exception as e:
         print(f"Skipped {file} -- {e}")
-        return
+        return None
     else:
         title = audio.get("title", ["Unknown"])[0]
         artist = audio.get("artist", ["Unknown"])[0]
@@ -75,69 +71,26 @@ def meta_extract(candidate: TrackCandidate):
         return (Artist(artist_id, artist), Album(album_id, album, artist_id, year), Track(track_id, title, str(file), album_id, track_num))
 
 def sync_library(source: LibrarySource):
-    artists, albums, tracks = [], [], []
+    artists, albums, tracks = {}, {}, {}
 
     for candidate in source.discover():
         data = meta_extract(candidate)
-        artist, album, track = data[0], data[1], data[2]
 
-        artists.append((artist.id, artist.name))
-        albums.append((album.id, album.title, album.year, album.artist_id))
-        tracks.append((track.id, track.title, track.track_number, track.path, track.album_id))
+        if data != None:
+            artist, album, track = data[0], data[1], data[2]
 
+            if not artist.id in artists.keys(): artists[artist.id] = artist
+            if not album.id in albums.keys(): albums[album.id] = album
+            if not track.id in tracks.keys(): tracks[track.id] = track
+
+            source.stage(track, album.title, artist.name) 
+
+        else: continue
+
+    artists = [(i.id, i.name) for i in artists.values()]
+    albums = [(i.id, i.title, i.year, i.artist_id) for i in albums.values()]
+    tracks = [(i.id, i.title, i.track_number, i.path, i.album_id) for i in tracks.values()]
 
     datab.add_batch("artists", artists)
     datab.add_batch("albums", albums)
     datab.add_batch("tracks", tracks)
-
-
-# def sync_library():
-#     lib_path_row = datab.get_lib_path()
-#     local_path_row = datab.get_local_path()
-#     path = lib_path_row["lib_path"] if lib_path_row else ""
-#     local_path = local_path_row["local_path"] if local_path_row else ""
-
-#     artists, albums, tracks = {}, {}, {}
-
-#     for file in Path(path).rglob("*"):
-#         if file.is_file() and file.suffix in [".mp3"]:
-
-#             try:
-#                 audio = EasyID3(file)
-#             except Exception as e:
-#                 print(f"Skipped {file} -- {e}")
-#                 continue
-
-#             title = audio.get("title", ["Unknown"])[0]
-#             artist = audio.get("artist", ["Unknown"])[0]
-#             album = audio.get("album", ["Unknown"])[0]
-#             year = audio.get("date", [2000])[0]
-#             track_num = audio.get("tracknumber", [0])[0]
-
-#             track_id = gen_id("track", file_path=file, album=album)
-#             artist_id = gen_id("artist", artist=artist)
-#             album_id = gen_id("album", artist=artist, album=album)
-
-#             if not artist_id in artists.keys(): artists[artist_id] = Artist(artist_id, artist)
-#             if not album_id in albums.keys(): albums[album_id] = Album(album_id, album, artist_id, year)
-#             if not track_id in tracks.keys(): tracks[track_id] = Track(track_id, title, str(file), album_id, track_num)
-
-#     for track in tracks.values():
-#         album = albums[track.album_id]
-#         artist = artists[album.artist_id]
-
-#         dst_dir = Path(local_path) / artist.name / album.title
-#         dst_file = dst_dir / Path(track.path).name
-
-#         if Path(track.path).parent != dst_dir:
-#             dst_dir.mkdir(parents=True, exist_ok=True)
-#             shutil.move(track.path, dst_file)
-#             track.path = str(dst_file)
-
-#     artists = [(i.id, i.name) for i in artists.values()]
-#     albums = [(i.id, i.title, i.year, i.artist_id) for i in albums.values()]
-#     tracks = [(i.id, i.title, i.track_number, i.path, i.album_id) for i in tracks.values()]
-
-#     datab.add_batch("artists", artists)
-#     datab.add_batch("albums", albums)
-#     datab.add_batch("tracks", tracks)
