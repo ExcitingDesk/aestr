@@ -3,7 +3,6 @@ from mutagen.mp3 import MP3
 from pathlib import Path
 from dataclasses import dataclass, field
 from interfaces.library_source import LibrarySource, TrackCandidate
-import shutil
 import lib_db as datab
 import hashlib
 
@@ -73,19 +72,20 @@ def meta_extract(candidate: TrackCandidate):
 def sync_library(source: LibrarySource):
     artists, albums, tracks = {}, {}, {}
 
+    del_safe = input("\nWould you like to delete emptied folders? (y/n)(default=n) : ").capitalize()
+
     for candidate in source.discover():
         data = meta_extract(candidate)
 
-        if data != None:
+        if data is not None:
             artist, album, track = data[0], data[1], data[2]
 
             if not artist.id in artists.keys(): artists[artist.id] = artist
             if not album.id in albums.keys(): albums[album.id] = album
             if not track.id in tracks.keys(): tracks[track.id] = track
 
-            source.stage(track, album.title, artist.name) 
-
-        else: continue
+    for track in tracks.values():
+        source.stage(track, album.title, artist.name, del_safe) 
 
     artists = [(i.id, i.name) for i in artists.values()]
     albums = [(i.id, i.title, i.year, i.artist_id) for i in albums.values()]

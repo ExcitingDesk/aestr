@@ -12,7 +12,6 @@ class AppContext:
 
 def bootstrap():
     datab.init_conn()
-    datab.setup_db()
     datab.user_conf()
     library.sync_library(FileSysLibSource(datab.get_lib_path(), datab.get_local_path()))
     search.init_cache()

@@ -1,17 +1,15 @@
 import sqlite3
+import os
 
-_DB_PATH = "/home/adam/Music/Aestr/aestr.db"
+_LOCAL_PATH = "/home/adam/Music/Aestr/"
+_DB_PATH = f"{_LOCAL_PATH}aestr.db"
 
 def init_conn():
+    os.makedirs(os.path.dirname(_LOCAL_PATH), exist_ok=True)
     global conn
     conn = sqlite3.connect(_DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-
-def shut_conn():
-    conn.close()
-
-def setup_db():    
     conn.executescript("""
                         CREATE TABLE IF NOT EXISTS artists
                         (id TEXT PRIMARY KEY,
@@ -38,6 +36,9 @@ def setup_db():
                     """)  
     conn.commit()
 
+def shut_conn():
+    conn.close()  
+    
 def user_conf():
     cursor = conn.cursor()
     paths = ("/home/adam/Music", "/home/adam/Music/Aestr")
