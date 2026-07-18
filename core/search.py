@@ -1,5 +1,5 @@
 from rapidfuzz import process, fuzz, utils
-import lib_db as db
+import core.lib_db as db
 
 def init_cache():
     _search_cache = db.build_cache()

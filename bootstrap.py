@@ -1,6 +1,6 @@
-import lib_db as datab
-import library
-import search
+import core.lib_db as datab
+import core.library as library
+import core.search as search
 from dataclasses import dataclass
 from desktop.pygame_audioBE import pygameAudioBackEnd
 from desktop.filesystem_library_source import FileSysLibSource

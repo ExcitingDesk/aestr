@@ -1,9 +1,9 @@
 import cmd
-import lib_db as datab
-import library
-import search
-import bootstrap
-from player import Player
+import core.lib_db as datab
+import core.library as library
+import core.search as search
+import bootstrap as bootstrap
+from core.player import Player
 
 PAGE_SIZE = 10
 DIVIDER = "─" * 50

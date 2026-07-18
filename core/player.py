@@ -1,6 +1,6 @@
 from interfaces.audio_backend import AudioBackend
-import lib_db as datab
-from track_queue import Queue
+import core.lib_db as datab
+from core.track_queue import Queue
 import threading
 
 class Player:

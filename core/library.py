@@ -3,7 +3,7 @@ from mutagen.mp3 import MP3
 from pathlib import Path
 from dataclasses import dataclass, field
 from interfaces.library_source import LibrarySource, TrackCandidate
-import lib_db as datab
+import core.lib_db as datab
 import hashlib
 
 @dataclass
