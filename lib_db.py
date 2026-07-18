@@ -131,3 +131,6 @@ def list_album_tracks(album_id):
     cursor = conn.cursor()
     cursor.execute("SELECT id, title FROM tracks WHERE album_id = ? ORDER BY track_number ASC", (album_id,))
     return {row["id"]: row["title"] for row in cursor}
+
+def check_unknowns():
+    ...

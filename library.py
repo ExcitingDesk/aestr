@@ -85,7 +85,7 @@ def sync_library(source: LibrarySource):
             if not track.id in tracks.keys(): tracks[track.id] = track
 
     for track in tracks.values():
-        source.stage(track, album.title, artist.name, del_safe) 
+        source.stage(track, albums[track.album_id].title, artists[albums[track.album_id].artist_id].name, del_safe) 
 
     artists = [(i.id, i.name) for i in artists.values()]
     albums = [(i.id, i.title, i.year, i.artist_id) for i in albums.values()]

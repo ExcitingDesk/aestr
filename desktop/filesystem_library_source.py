@@ -3,7 +3,7 @@ from pathlib import Path
 from dataclasses import dataclass
 import shutil
 
-class FileSysLibSource(LibrarySource):
+class FileSysLibSource(LibrarySource): 
     def __init__(self, lib_path, local_path):
         self.lib_path = lib_path
         self.local_path = local_path
@@ -23,6 +23,10 @@ class FileSysLibSource(LibrarySource):
             shutil.move(track.path, dst_file)
             track.path = str(dst_file)
 
-            if not any(src_dir.iterdir()) and del_safe=='Y':
-                src_dir.rmdir()
-                print(f"Empty folder {src_dir} deleted")
+            if del_safe == 'Y':
+                lib_root = Path(self.lib_path).resolve()
+                current = src_dir.resolve()
+                while current != lib_root and lib_root in current.parents and not any(current.iterdir()):
+                    current.rmdir()
+                    print(f"Empty folder {current} deleted")
+                    current = current.parent
