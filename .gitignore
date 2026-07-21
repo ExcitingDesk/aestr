@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+dependencies.txt
+.venv/
+CHANGES.md
+.idea

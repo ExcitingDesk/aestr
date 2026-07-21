@@ -1,22 +1,25 @@
-from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
-from pathlib import Path
 from dataclasses import dataclass, field
 from interfaces.library_source import LibrarySource, TrackCandidate
+import metamanager
 import lib_db as datab
 import hashlib
+import re
 
 @dataclass
 class Artist:
     id: str
     name: str
+    display_name: str
 
 @dataclass
 class Album:
     id: str
     title: str
+    display_title: str
     artist_id: str
-    year: int = field(default=2000)
+    year: int=field(default=2000)
+    cover: bool=field(default=False)
 
 @dataclass
 class Track:
@@ -24,73 +27,73 @@ class Track:
     title: str
     path: str
     album_id : str
-    track_number: int = field(default=0)
+    track_number: int=field(default=0)
 
+def _normalize(name: str) -> str:
+        name = name.lower()
+        name = re.sub(r"[^a-z0-9\s]", "", name)
+        name = re.sub(r"\s+", " ", name).strip()
+        return name
+    
 def gen_id(kind: str, *, file_path=None, artist="", album="") -> str:
 
-    def _hash(data: bytes, n: int = 12) -> str:
+    def _hash(data: bytes, n: int=12) -> str:
         return hashlib.sha256(data).hexdigest()[:n]
 
     match kind:
         case "track":
-            audio = MP3(file_path)
-            offset = audio.info.frame_offset
+            audio=MP3(file_path)
+            offset=audio.info.frame_offset
             with open(file_path, "rb") as f:
                 f.seek(offset)
-                chunk = f.read(64_000)
-            audio_hash = hashlib.sha256(chunk).hexdigest()[:12]
-            album_hash = hashlib.sha256(album.strip().lower().encode()).hexdigest()[:4]
+                chunk=f.read(64_000)
+            audio_hash=hashlib.sha256(chunk).hexdigest()[:12]
+            album_hash=hashlib.sha256(album.strip().lower().encode()).hexdigest()[:4]
             return audio_hash + album_hash
         case "album":
-            key = f"{artist.strip().lower()}|{album.strip().lower()}"
+            key=f"{artist.strip().lower()}|{album.strip().lower()}"
             return _hash(key.encode())
         case "artist":
             return _hash(artist.strip().lower().encode())
         case _:
             raise ValueError(f"Unknown id kind: {kind!r}")
+    
+def stage_meta(candidate: TrackCandidate):
+    metadata = metamanager.extract_meta(candidate)
+    if metadata:
+        title, artist, album, year, track_num = metadata[0], metadata[1], metadata[2], metadata[3], metadata[4]
+        track_id=gen_id("track", file_path=candidate.uri, album=_normalize(album))
+        artist_id=gen_id("artist", artist=_normalize(artist))
+        album_id=gen_id("album", artist=_normalize(artist), album=_normalize(album))
 
-def meta_extract(candidate: TrackCandidate):
-    file = candidate.uri
-    try:
-        audio = EasyID3(file)
-    except Exception as e:
-        print(f"Skipped {file} -- {e}")
-        return None
-    else:
-        title = audio.get("title", ["Unknown"])[0]
-        artist = audio.get("artist", ["Unknown"])[0]
-        album = audio.get("album", ["Unknown"])[0]
-        year = audio.get("date", [2000])[0]
-        track_num = audio.get("tracknumber", [0])[0]
-
-        track_id = gen_id("track", file_path=file, album=album)
-        artist_id = gen_id("artist", artist=artist)
-        album_id = gen_id("album", artist=artist, album=album)
-
-        return (Artist(artist_id, artist), Album(album_id, album, artist_id, year), Track(track_id, title, str(file), album_id, track_num))
+        return Artist(artist_id, _normalize(artist), artist), Album(album_id, _normalize(album), album, artist_id, year), Track(track_id, title, str(candidate.uri), album_id, track_num)
+    return None
 
 def sync_library(source: LibrarySource):
-    artists, albums, tracks = {}, {}, {}
+    artists, albums, tracks={}, {}, {}
 
-    del_safe = input("\nWould you like to delete emptied folders? (y/n)(default=n) : ").capitalize()
-
+    art_dir = datab.get_art_path()
+    
     for candidate in source.discover():
-        data = meta_extract(candidate)
+        data=stage_meta(candidate)
+        artist, album, track = None, None, None
 
         if data is not None:
-            artist, album, track = data[0], data[1], data[2]
+            artist, album, track=data[0], data[1], data[2]
 
-            if not artist.id in artists.keys(): artists[artist.id] = artist
-            if not album.id in albums.keys(): albums[album.id] = album
-            if not track.id in tracks.keys(): tracks[track.id] = track
+            if not artist.id in artists.keys(): artists[artist.id]=artist
+            if not album.id in albums.keys(): albums[album.id]=album
+            if not track.id in tracks.keys(): tracks[track.id]=track
+
+        if album and not datab.get_album_covered(album.id): metamanager.extract_art(candidate, album, art_dir)
 
     for track in tracks.values():
-        source.stage(track, albums[track.album_id].title, artists[albums[track.album_id].artist_id].name, del_safe) 
+        source.stage(track, albums[track.album_id].title, artists[albums[track.album_id].artist_id].name)
 
-    artists = [(i.id, i.name) for i in artists.values()]
-    albums = [(i.id, i.title, i.year, i.artist_id) for i in albums.values()]
-    tracks = [(i.id, i.title, i.track_number, i.path, i.album_id) for i in tracks.values()]
+    artists=[(i.id, i.name, i.display_name) for i in artists.values()]
+    albums=[(i.id, i.title, i.display_title, i.year, i.cover, i.artist_id) for i in albums.values()]
+    tracks=[(i.id, i.title, i.track_number, i.path, i.album_id) for i in tracks.values()]
 
-    datab.add_batch("artists", artists)
-    datab.add_batch("albums", albums)
-    datab.add_batch("tracks", tracks)
+    datab.add_batch_artists(artists)
+    datab.add_batch_albums(albums)
+    datab.add_batch_tracks(tracks)

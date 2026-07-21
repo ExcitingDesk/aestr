@@ -39,7 +39,7 @@ class AestrCLI(cmd.Cmd):
                 return
             status = "⏸" if self.player.paused else "▶"
             print(f" {status}  {track['title']}")
-            print(f"     {album['title']} — {artist['name']}")
+            print(f"     {album['display_title']} — {artist['display_name']}")
             q = self.player.queue.current_queue
             if playing_id in q:
                 idx = q.index(playing_id) + 1
@@ -307,13 +307,13 @@ class AestrCLI(cmd.Cmd):
             for album_id, (title, _year) in datab.list_artist_albums(artist_id).items():
                 if album_id not in seen:
                     seen.add(album_id)
-                    items.append((album_id, f"{title} - {artist_info['name']}", "album"))
+                    items.append((album_id, f"{title} - {artist_info['display_name']}", "album"))
         for title, _score, album_id in albums:
             if album_id not in seen:
                 seen.add(album_id)
                 album_info = datab.get_album_info(album_id)
                 artist_info = datab.get_artist_info(album_info["artist"]) if album_info else None
-                label = f"{title} - {artist_info['name']}" if artist_info else title
+                label = f"{title} - {artist_info['display_name']}" if artist_info else title
                 items.append((album_id, label, "album"))
         for title, _score, track_id in tracks:
             if track_id not in seen:
@@ -321,7 +321,7 @@ class AestrCLI(cmd.Cmd):
                 track_info = datab.get_track_info(track_id)
                 album_info = datab.get_album_info(track_info["album"]) if track_info else None
                 artist_info = datab.get_artist_info(album_info["artist"]) if album_info else None
-                label = f"{title} - {artist_info['name']}" if artist_info else title
+                label = f"{title} - {artist_info['display_name']}" if artist_info else title
                 items.append((track_id, label, "track"))
         if not items:
             print("No results.")
