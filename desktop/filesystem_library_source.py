@@ -12,7 +12,7 @@ class FileSysLibSource(LibrarySource):
             if file.is_file() and file.suffix in [".mp3", ".wav"]:
                 yield TrackCandidate(uri=f"{file}")
     
-    def stage(self, track, album_title, artist_name, del_safe='N'):
+    def stage(self, track, album_title, artist_name, del_safe='Y'):
         dst_dir = Path(self.local_path) / artist_name / album_title
         dst_file = dst_dir / Path(track.path).name
         

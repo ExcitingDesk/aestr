@@ -1,16 +1,22 @@
 from rapidfuzz import process, fuzz, utils
 import lib_db as db
 
-def init_cache():
-    _search_cache = db.build_cache()
+_artist_cache :dict = None
+_album_cache :dict = None
+_track_cache :dict = None
 
+_artist_results :list = []
+_album_results :list = []
+_track_results :list = []
+
+def init_cache():
     global _artist_cache
     global _album_cache
     global _track_cache
 
-    _artist_cache = _search_cache["artists"]
-    _album_cache = _search_cache["albums"]
-    _track_cache = _search_cache["tracks"]
+    _artist_cache = db.build_artist_cache()
+    _album_cache = db.build_album_cache()
+    _track_cache = db.build_track_cache()
 
 
 def search(query, search_type):
@@ -54,7 +60,7 @@ def search(query, search_type):
             _album_results = search(query, "album")
             _track_results = search(query, "track")
 
-            return (_artist_results, _album_results, _track_results)
+            return _artist_results, _album_results, _track_results
 
         case _:
             raise ValueError(f"Unknown query type: {search_type!r}")

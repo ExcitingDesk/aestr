@@ -1,39 +1,16 @@
 from mutagen.mp3 import MP3
 from dataclasses import dataclass, field
 from interfaces.library_source import LibrarySource, TrackCandidate
-import metamanager
+import metamanager as meta
 import lib_db as datab
+from lib_db import Album, Track, Artist
 import hashlib
 import re
 
-@dataclass
-class Artist:
-    id: str
-    name: str
-    display_name: str
-
-@dataclass
-class Album:
-    id: str
-    title: str
-    display_title: str
-    artist_id: str
-    year: int=field(default=2000)
-    cover: bool=field(default=False)
-
-@dataclass
-class Track:
-    id: str
-    title: str
-    path: str
-    album_id : str
-    track_number: int=field(default=0)
-
 def _normalize(name: str) -> str:
-        name = name.lower()
-        name = re.sub(r"[^a-z0-9\s]", "", name)
-        name = re.sub(r"\s+", " ", name).strip()
-        return name
+    name = name.lower()
+    name = re.sub(r"[^a-z0-9àâæçéèêëïîôœùûüÿäößñ]", "", name)
+    return name
     
 def gen_id(kind: str, *, file_path=None, artist="", album="") -> str:
 
@@ -59,7 +36,7 @@ def gen_id(kind: str, *, file_path=None, artist="", album="") -> str:
             raise ValueError(f"Unknown id kind: {kind!r}")
     
 def stage_meta(candidate: TrackCandidate):
-    metadata = metamanager.extract_meta(candidate)
+    metadata = meta.extract_meta(candidate)
     if metadata:
         title, artist, album, year, track_num = metadata[0], metadata[1], metadata[2], metadata[3], metadata[4]
         track_id=gen_id("track", file_path=candidate.uri, album=_normalize(album))
@@ -75,7 +52,7 @@ def sync_library(source: LibrarySource):
     art_dir = datab.get_art_path()
     
     for candidate in source.discover():
-        data=stage_meta(candidate)
+        data=stage_meta(candidate.uri)
         artist, album, track = None, None, None
 
         if data is not None:
@@ -85,10 +62,10 @@ def sync_library(source: LibrarySource):
             if not album.id in albums.keys(): albums[album.id]=album
             if not track.id in tracks.keys(): tracks[track.id]=track
 
-        if album and not datab.get_album_covered(album.id): metamanager.extract_art(candidate, album, art_dir)
+        if album and not datab.get_album_covered(album.id): meta.extract_art(candidate, album, art_dir)
 
     for track in tracks.values():
-        source.stage(track, albums[track.album_id].title, artists[albums[track.album_id].artist_id].name)
+        source.stage(track, albums[track.album_id].display_title, artists[albums[track.album_id].artist_id].display_name)
 
     artists=[(i.id, i.name, i.display_name) for i in artists.values()]
     albums=[(i.id, i.title, i.display_title, i.year, i.cover, i.artist_id) for i in albums.values()]
@@ -97,3 +74,9 @@ def sync_library(source: LibrarySource):
     datab.add_batch_artists(artists)
     datab.add_batch_albums(albums)
     datab.add_batch_tracks(tracks)
+
+def metafixer():
+    albums = datab.build_fixer_objects()
+    for i in albums:
+        new_data = meta.fix(i.album, i.artist_name, i.track_paths)
+

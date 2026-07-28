@@ -1,5 +1,42 @@
 import sqlite3
 import os
+from dataclasses import dataclass, field
+
+"""
+CHECK STATES :
+0 : UNCHECKED
+1 : CHECKED AND COMPLETE
+2 : REQUIRE USER ATTENTION
+"""
+
+@dataclass
+class Artist:
+    id: str
+    name: str
+    display_name: str
+
+@dataclass
+class Album:
+    id: str
+    title: str
+    display_title: str
+    artist_id: str
+    year: str=field(default="2000")
+    cover: bool=field(default=False)
+
+@dataclass
+class Track:
+    id: str
+    title: str
+    path: str
+    album_id : str
+    track_number: int=field(default=0)
+
+@dataclass
+class FixerJob:
+    album: Album
+    artist_name: str
+    track_paths: list[str]
 
 def init_db(lib_path):
     _LOCAL_PATH = f"{lib_path}aestr/"
@@ -23,9 +60,10 @@ def init_db(lib_path):
                         (id TEXT PRIMARY KEY,
                         title TEXT NOT NULL,
                         display_title TEXT NOT NULL,
-                        year INTEGER,
+                        year TEXT,
                         artist_id TEXT NOT NULL,
                         covered BOOLEAN NOT NULL DEFAULT FALSE,
+                        check_state INTEGER NOT NULL DEFAULT 0,
                         FOREIGN KEY (artist_id) REFERENCES artists(id));
 
                         CREATE TABLE IF NOT EXISTS tracks
@@ -34,6 +72,7 @@ def init_db(lib_path):
                         track_number INTEGER,
                         path TEXT NOT NULL UNIQUE,
                         album_id TEXT NOT NULL,
+                        check_state INTEGER NOT NULL DEFAULT 0,
                         FOREIGN KEY (album_id) REFERENCES albums(id));
 
                         CREATE TABLE IF NOT EXISTS user_conf
@@ -66,19 +105,29 @@ def get_lib_path():
     lib_path_row = cursor.execute("SELECT lib_path FROM user_conf").fetchone()
     return lib_path_row["lib_path"] if lib_path_row else ""
 
-def build_cache():
+def build_artist_cache():
     cursor = conn.cursor()
     
     cursor.execute("SELECT id, display_name FROM artists")
     artists_cache = {row["id"]: row["display_name"] for row in cursor}
 
+    return artists_cache
+
+def build_album_cache():
+    cursor = conn.cursor()
+
     cursor.execute("SELECT id, display_title FROM albums")
     albums_cache = {row["id"]: row["display_title"] for row in cursor}
+
+    return albums_cache
+
+def build_track_cache():
+    cursor = conn.cursor()
 
     cursor.execute("SELECT id, title FROM tracks")
     tracks_cache = {row["id"]: row["title"] for row in cursor}
 
-    return {"artists": artists_cache, "albums": albums_cache, "tracks": tracks_cache}
+    return tracks_cache
 
 def add_batch_artists(content: list[tuple]) -> None:
     cursor = conn.cursor()
@@ -101,7 +150,29 @@ def add_batch_tracks(content: list[tuple]) -> None:
                             ,content)
     conn.commit()
 
+def build_fixer_objects():
+    def _get_tracks_from_album(alb_id):
+        _cursor = conn.cursor()
+        _cursor.execute("SELECT id, path, track_number FROM tracks WHERE album_id=? ORDER BY track_number", (alb_id,))
+        return [r["path"] for r in _cursor.fetchall()]
 
+    def _get_artist_name(art_id):
+        _cursor = conn.cursor()
+        _cursor.execute("SELECT name FROM artists WHERE id=?", (art_id,))
+        _row = _cursor.fetchone()
+        if _row:
+            return _row["name"]
+        return None
+
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, title, display_title, artist_id, year FROM albums WHERE check_state=?", (0,))
+    rows = cursor.fetchall()
+    if not rows:
+        return None
+    return [FixerJob(
+        album=Album(r["id"], r["title"], r["display_title"], r["artist_id"], r["year"]),
+        artist_name=_get_artist_name(r["artist_id"]),
+        track_paths=_get_tracks_from_album(r["id"])) for r in rows]
 
 def get_track_info(track_id):
     cursor = conn.cursor()
@@ -145,6 +216,45 @@ def list_album_tracks(album_id):
     cursor = conn.cursor()
     cursor.execute("SELECT id, title FROM tracks WHERE album_id = ? ORDER BY track_number ASC", (album_id,))
     return {row["id"]: row["title"] for row in cursor}
+
+def get_track_from_path(path):
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM tracks WHERE path = ?", (path,))
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return {"id": row["id"], "title": row["title"], "num": row["track_number"], "path": row["path"], "album": row["album_id"]}
+
+def mod_track_info(id, title, track_number, path, album_id):
+    cursor = conn.cursor()
+    cursor.execute("""
+                   UPDATE tracks
+                   SET title        = ?,
+                       track_number = ?,
+                       path         = ?,
+                       album_id     = ?
+                   WHERE id = ?
+                   """, (title, track_number, path, album_id, id))
+    conn.commit()
+
+def mod_album_info(id, display_title, year):
+    cursor = conn.cursor()
+    cursor.execute("""
+                    UPDATE albums
+                    SET display_title = ?,
+                        year        = ?
+                    WHERE id = ?
+                    """, (display_title, year, id))
+    conn.commit()
+
+def mod_artist_info(id, display_name):
+    cursor = conn.cursor()
+    cursor.execute("""
+                    UPDATE artists
+                    SET display_name = ?
+                    WHERE id = ?
+                    """, (display_name, id, ))
+    conn.commit()
 
 def nuke():
     cursor = conn.cursor()
