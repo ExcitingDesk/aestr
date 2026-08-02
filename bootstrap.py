@@ -15,9 +15,9 @@ class AppContext:
 
 def bootstrap():
     _LIB_PATH = "/home/adam/Music/"
-    filesyslib = FileSysLibSource(datab.get_lib_path(), datab.get_local_path())
 
     datab.init_db(_LIB_PATH)
+    filesyslib = FileSysLibSource(datab.get_lib_path(), datab.get_local_path())
     library.sync_library(filesyslib)
     search.init_cache()
 

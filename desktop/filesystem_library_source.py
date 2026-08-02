@@ -9,7 +9,7 @@ class FileSysLibSource(LibrarySource):
 
     def discover(self):
         for file in Path(self.lib_path).rglob("*"):
-            if file.is_file() and file.suffix in [".mp3", ".wav"]:
+            if file.is_file() and file.suffix in [".mp3"]:
                 yield TrackCandidate(uri=f"{file}")
     
     def stage(self, track, album_title, artist_name, del_safe='Y'):

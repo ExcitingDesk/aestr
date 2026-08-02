@@ -9,6 +9,12 @@ CHECK STATES :
 2 : REQUIRE USER ATTENTION
 """
 
+ALLOWED_COLUMNS = {
+    "tracks": {"title", "track_number", "path", "check_state", "album_id"},
+    "albums": {"title", "year", "check_state", "artist_id"},
+    "artists": {"name"},
+    }
+
 @dataclass
 class Artist:
     id: str
@@ -90,24 +96,12 @@ def init_db(lib_path):
 def shut_conn():
     conn.close()  
 
-def get_local_path():
-    cursor = conn.cursor()
-    local_path_row = cursor.execute("SELECT local_path FROM user_conf").fetchone()
-    return local_path_row["local_path"] if local_path_row else ""
-
-def get_art_path():
-    cursor = conn.cursor()
-    art_path_row = cursor.execute("SELECT art_path FROM user_conf").fetchone()
-    return art_path_row["art_path"] if art_path_row else ""
-
-def get_lib_path():
-    cursor = conn.cursor()
-    lib_path_row = cursor.execute("SELECT lib_path FROM user_conf").fetchone()
-    return lib_path_row["lib_path"] if lib_path_row else ""
+##############################################
+################ BUILDERS ####################
+##############################################
 
 def build_artist_cache():
     cursor = conn.cursor()
-    
     cursor.execute("SELECT id, display_name FROM artists")
     artists_cache = {row["id"]: row["display_name"] for row in cursor}
 
@@ -115,7 +109,6 @@ def build_artist_cache():
 
 def build_album_cache():
     cursor = conn.cursor()
-
     cursor.execute("SELECT id, display_title FROM albums")
     albums_cache = {row["id"]: row["display_title"] for row in cursor}
 
@@ -123,32 +116,10 @@ def build_album_cache():
 
 def build_track_cache():
     cursor = conn.cursor()
-
     cursor.execute("SELECT id, title FROM tracks")
     tracks_cache = {row["id"]: row["title"] for row in cursor}
 
     return tracks_cache
-
-def add_batch_artists(content: list[tuple]) -> None:
-    cursor = conn.cursor()
-    cursor.executemany("""INSERT OR REPLACE INTO 
-                        artists (id, name, display_name) VALUES (?, ?, ?)"""
-                       , content)
-    conn.commit()
-
-def add_batch_albums(content: list[tuple]) -> None:
-    cursor = conn.cursor()
-    cursor.executemany("""INSERT OR REPLACE INTO 
-                            albums (id, title, display_title, year, covered, artist_id) VALUES (?, ?, ?, ?, ?, ?)"""
-                            ,content)
-    conn.commit()
-
-def add_batch_tracks(content: list[tuple]) -> None:
-    cursor = conn.cursor()
-    cursor.executemany("""INSERT OR REPLACE INTO 
-                            tracks (id, title, track_number, path, album_id) VALUES (?, ?, ?, ?, ?)"""
-                            ,content)
-    conn.commit()
 
 def build_fixer_objects():
     def _get_tracks_from_album(alb_id):
@@ -173,37 +144,70 @@ def build_fixer_objects():
         album=Album(r["id"], r["title"], r["display_title"], r["artist_id"], r["year"]),
         artist_name=_get_artist_name(r["artist_id"]),
         track_paths=_get_tracks_from_album(r["id"])) for r in rows]
+    
+##############################################
+################ GETTERS #####################
+##############################################
+
+def get_local_path():
+    cursor = conn.cursor()
+    local_path_row = cursor.execute("SELECT local_path FROM user_conf").fetchone()
+    return local_path_row["local_path"] if local_path_row else ""
+
+def get_art_path():
+    cursor = conn.cursor()
+    art_path_row = cursor.execute("SELECT art_path FROM user_conf").fetchone()
+    return art_path_row["art_path"] if art_path_row else ""
+
+def get_lib_path():
+    cursor = conn.cursor()
+    lib_path_row = cursor.execute("SELECT lib_path FROM user_conf").fetchone()
+    return lib_path_row["lib_path"] if lib_path_row else ""
 
 def get_track_info(track_id):
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM tracks WHERE id = ?", (track_id,))
     row = cursor.fetchone()
-    if row is None:
-        return None
-    return {"title": row["title"], "num": row["track_number"], "path": row["path"], "album": row["album_id"]}
+    return None if not row else {"id": row["id"],
+                                 "title": row["title"],
+                                 "track_number": row["track_number"],
+                                 "path": row["path"],
+                                 "album_id": row["album_id"],
+                                 "check_state": row["check_state"]}
 
 
 def get_album_info(album_id):
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM albums WHERE id = ?", (album_id,))
     row = cursor.fetchone()
-    if row is None:
-        return None
-    return {"title": row["title"], "display_title": row["display_title"],"year": row["year"], "artist": row["artist_id"]}
-
-def get_album_covered(album_id):
-    cursor = conn.cursor()
-    cursor.execute("SELECT covered FROM albums WHERE id = ?", (album_id,))
-    row = cursor.fetchone()
-    return row["covered"] if row else False
+    return None if not row else { "id" : row["id"],
+                                    "title": row["title"],
+                                    "display_title": row["display_title"],
+                                    "year": row["year"],
+                                    "artist_id": row["artist_id"],
+                                    "covered": row["covered"],
+                                    "check_state": row["check_state"]}
 
 def get_artist_info(artist_id):
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM artists WHERE id = ?", (artist_id,))
     row = cursor.fetchone()
-    if row is None:
-        return None
-    return {"name": row["name"], "display_name": row["display_name"]}
+    return None if not row else {"id": row["id"],
+                                "name": row["name"],
+                                "display_name": row["display_name"]}
+
+def get_track_id_from_path(path):
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM tracks WHERE path = ?", (path,))
+    row = cursor.fetchone()
+    return None if not row else row["id"]
+
+##### REDUNDANT - NEEDS RE-WIRING ?
+def get_album_covered(album_id):
+    cursor = conn.cursor()
+    cursor.execute("SELECT covered FROM albums WHERE id = ?", (album_id,))
+    row = cursor.fetchone()
+    return row["covered"] if row else False
 
 
 def list_artist_albums(artist_id):
@@ -217,44 +221,58 @@ def list_album_tracks(album_id):
     cursor.execute("SELECT id, title FROM tracks WHERE album_id = ? ORDER BY track_number ASC", (album_id,))
     return {row["id"]: row["title"] for row in cursor}
 
-def get_track_from_path(path):
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM tracks WHERE path = ?", (path,))
-    row = cursor.fetchone()
-    if row is None:
-        return None
-    return {"id": row["id"], "title": row["title"], "num": row["track_number"], "path": row["path"], "album": row["album_id"]}
+##############################################
+################# SETTERS ####################
+##############################################
 
-def mod_track_info(id, title, track_number, path, album_id):
+def add_batch_artists(content: list[tuple]) -> None:
     cursor = conn.cursor()
-    cursor.execute("""
-                   UPDATE tracks
-                   SET title        = ?,
-                       track_number = ?,
-                       path         = ?,
-                       album_id     = ?
-                   WHERE id = ?
-                   """, (title, track_number, path, album_id, id))
+    cursor.executemany("""INSERT OR REPLACE INTO 
+                        artists (id, name, display_name) VALUES (?, ?, ?)"""
+                       , content)
     conn.commit()
 
-def mod_album_info(id, display_title, year):
+def add_batch_albums(content: list[tuple]) -> None:
     cursor = conn.cursor()
-    cursor.execute("""
-                    UPDATE albums
-                    SET display_title = ?,
-                        year        = ?
-                    WHERE id = ?
-                    """, (display_title, year, id))
+    cursor.executemany("""INSERT OR REPLACE INTO 
+                            albums (id, title, display_title, year, covered, artist_id) VALUES (?, ?, ?, ?, ?, ?)"""
+                            ,content)
     conn.commit()
 
-def mod_artist_info(id, display_name):
+def add_batch_tracks(content: list[tuple]) -> None:
     cursor = conn.cursor()
-    cursor.execute("""
-                    UPDATE artists
-                    SET display_name = ?
-                    WHERE id = ?
-                    """, (display_name, id, ))
+    cursor.executemany("""INSERT OR REPLACE INTO 
+                            tracks (id, title, track_number, path, album_id) VALUES (?, ?, ?, ?, ?)"""
+                            ,content)
     conn.commit()
+
+def update_lib_table(table, g_id, changes):
+    if table not in ALLOWED_COLUMNS:
+        raise ValueError(f"Table not allowed: {table}")
+
+    allowed = ALLOWED_COLUMNS[table]
+    columns = []
+    values = []
+
+    for tag, value in changes.items():
+        if tag not in allowed:
+            print(f"{tag} not allowed - ignoring")
+            continue
+        columns.append(f"{tag} = ?")
+        values.append(value)
+
+    if not columns:
+        return
+
+    values.append(g_id)
+    sql = f"UPDATE {table} SET {', '.join(columns)} WHERE id = ?"
+    conn.cursor().execute(sql, values)
+    conn.commit()
+
+def merge_artist(old_id, new_id):
+    with conn:
+        conn.execute("UPDATE albums SET artist_id = ? WHERE artist_id = ?", (new_id, old_id))
+        conn.execute("DELETE FROM artists WHERE id = ?", (old_id,))
 
 def nuke():
     cursor = conn.cursor()

@@ -1,15 +1,22 @@
 from difflib import SequenceMatcher
-
 from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
+from pathlib import Path
+from dotenv import load_dotenv
+import os
 import musicbrainzngs as mb
 import lib_db as datab
-from pathlib import Path
 import acoustid
-import random
+import mimetypes
 
 mb.set_useragent("Aestr", "0.1", "khachani.a.a@gmail.com")
 
+MB_SCORE_THRESHOLD = 90
+ACOUSTID_SCORE_THRESHOLD = 0.90
+FUZZY_MATCH_THRESHOLD = 90
+
+load_dotenv()
+acoustID_key = os.getenv("ACOUSTID_KEY")
 ##############################################
 ############# EXTRACT FROM FILE ##############
 ##############################################
@@ -21,15 +28,14 @@ def extract_meta(file):
         print(f"Skipped {file} -- {e}")
         return None
     else:
-        title = audio.get("title", ["Unknown"])[0]
-        artist = audio.get("artist", ["Unknown"])[0]
-        album = audio.get("album", ["Unknown"])[0]
-        year = audio.get("date", [2000])[0]
-        track_num = audio.get("tracknumber", [0])[0]
-
-        metadata = [title, artist, album, year, track_num]
-        if metadata: return metadata
-        else: return None
+        metadata = {
+            "title": audio.get("title", ["Unknown"])[0],
+            "artist": audio.get("artist", ["Unknown"])[0],
+            "album": audio.get("album", ["Unknown"])[0],
+            "year": audio.get("date", ["2000"])[0],
+            "track_num": audio.get("tracknumber", [0])[0],
+        }
+        return metadata
 
 def apply_meta(file, new_data):
     try:
@@ -41,29 +47,30 @@ def apply_meta(file, new_data):
         for i in new_data.keys():
             match i:
                 case "album_title":
-                    audio["title"] = new_data["album_title"]
+                    audio["album"] = new_data["album_title"]
                 case "artist_name":
                     audio["artist"] = new_data["artist_name"]
                 case "track_number":
-                    audio["track_number"] = new_data["track_number"]
+                    audio["tracknumber"] = new_data["track_number"]
                 case "track_title":
-                    audio["track_title"] = new_data["track_title"]
+                    audio["title"] = new_data["track_title"]
         audio.save()
 
 def extract_art(file_path, album, art_dir):
     try:
         audio = MP3(file_path.uri)
         if audio.tags is None:
-            return False
+            return None
 
         apics = audio.tags.getall("APIC")
         if not apics:
-            return False
+            return None
 
         art = next((a for a in apics if a.type == 3), apics[0])
 
-        ext = "jpg" if "jpeg" in art.mime else "png"
-        save_path = Path(f"{art_dir}{album.id}.{ext}")
+        ext = mimetypes.guess_extension(art.mime)
+        if ext is None : return None
+        save_path = Path(f"{art_dir}{album.id}{ext}")
         save_path.write_bytes(art.data)
         album.cover=True
         return True
@@ -91,8 +98,8 @@ def get_track_mbid(track_path, track_name, album_title, artist_name):
         print(f"  No results for '{artist_name} — {album_title}'")
         return False
 
-    score = float(rg_list[0].get('ext:score') or rg_list[0].get('score') or 0)
-    if score > 90:
+    score = rg_list[0].get('ext:score', rg_list[0].get('score', 0))
+    if score > MB_SCORE_THRESHOLD:
         return rg_list[0]["id"]
     else:
         mbid = fingerprint_id(track_path)
@@ -120,7 +127,7 @@ def get_album_mbid(album, artist_name, sample_track):
         return False
 
     score = float(rg_list[0].get('ext:score') or rg_list[0].get('score') or 0)
-    if score > 0.90:
+    if score > MB_SCORE_THRESHOLD:
         return rg_list[0]["id"]
     else:
         mbid = fingerprint_id(sample_track)
@@ -130,17 +137,23 @@ def get_album_mbid(album, artist_name, sample_track):
     return None
 
 def fingerprint_id(file_path):
-    for score, recording_id in acoustid.match("7auJcYCK7h", file_path):
-        if score>0.90:
-            return recording_id
+    try:
+        for score, recording_id, title, artist in acoustid.match(acoustID_key, file_path):
+            if score>ACOUSTID_SCORE_THRESHOLD:
+                return recording_id
+    except acoustid.AcoustidError as e:
+        print(f"  AcoustID failed for {file_path}: {e}")
     return None
 
 def find_match(track, tracklist):
+    best_score = 0
+    best_match = None
     for t in tracklist:
         score = SequenceMatcher(None, track, t).ratio() * 100
-        if score > 90:
-            return t
-    return None
+        if score > best_score:
+            best_score = score
+            best_match = t
+    return best_match if best_score > FUZZY_MATCH_THRESHOLD else None
 ##############################################
 ################## QUERY #####################
 ##############################################
@@ -193,11 +206,11 @@ def get_album_art(mbid, album_id):
 ################## FIX #######################
 ##############################################
 def fix_track_name(file, file_meta, tracklist):
-    match = find_match(file_meta[0], tracklist)
+    match = find_match(file_meta["title"], tracklist)
     if match:
         return match
     else :
-        track_mbid = get_track_mbid(file, file_meta[0], file_meta[2], file_meta[1])
+        track_mbid = get_track_mbid(file, file_meta["title"], file_meta["album"], file_meta["artist"])
         if track_mbid:
             track_meta = get_track_mbinfo(track_mbid)
             return track_meta["title"]
@@ -205,59 +218,49 @@ def fix_track_name(file, file_meta, tracklist):
 
 def fix(album, artist_name, track_paths):
     unresolved = []
-    changed = {"tracks":[]}
-    album_mbid = get_album_mbid(album, artist_name, random.choice(track_paths))
+    changed = {}
+    album_mbid = get_album_mbid(album, artist_name, track_paths[0])
 
-    if album_mbid:
-        album_meta = get_album_mbinfo(album_mbid)
-
-        if album.title != album_meta["title"]: changed["album_title"] = album_meta["title"]
-        if album.year != album_meta["year"]: changed["year"] = album_meta["year"]
-        if artist_name != album_meta["artist_name"]: changed["artist_name"] = album_meta["artist_name"]
-
-        for file in track_paths:
-            metachanges = {}
-            file_meta = extract_meta(file)
-
-            if file_meta[0] not in album_meta["tracklist"]:
-                fixed_name = fix_track_name(file, file_meta, album_meta["tracklist"])
-                if fixed_name:
-                    metachanges["track_title"] = fixed_name
-                else:
-                    unresolved.append(file)
-                    continue
-
-            if file_meta[1] != album_meta["artist_name"]:
-                metachanges["artist_name"] = album_meta["artist_name"]
-
-            if file_meta[2] != album_meta["title"]:
-                metachanges["album_title"] = album_meta["title"]
-
-            if file_meta[4] != album_meta["tracklist"].index(metachanges["track_title"]):
-                metachanges["track_number"] = album_meta["tracklist"].index(metachanges["track_title"])
-
-            if metachanges:
-                apply_meta(file, metachanges)
-                changed["tracks"].append(file)
-                
+    if not album_mbid:
+        unresolved.extend(track_paths)
         return changed, unresolved
-    return None
 
-    #[title, artist, album, year, track_num]
-    """{
-        "title": release["title"],
-        "year": release["date"][:4],
-        "artist_name": release["artist-credit"][0]["artist"]["name"],
-        "tracklist": [r["recording"]["title"] for r in release["medium-list"][0]["track-list"]],
-    }
-    
-    case "album_title":
-                    audio["title"] = new_data["album_title"]
-                case "artist_name":
-                    audio["artist"] = new_data["artist_name"]
-                case "year":
-                    audio["year"] = new_data["year"]
-                case "track_number":
-                    audio["track_number"] = new_data["track_number"]
-                case "track_title":
-                    audio["track_title"] = new_data["track_title"]"""
+    album_meta = get_album_mbinfo(album_mbid)
+
+    if album.title != album_meta["title"]:
+        changed["album_title"] = album_meta["title"]
+    if album.year != album_meta["year"]: changed["year"] = album_meta["year"]
+    if artist_name != album_meta["artist_name"]: changed["artist_name"] = album_meta["artist_name"]
+
+    for file in track_paths:
+        metachanges = {}
+        file_meta = extract_meta(file)
+
+        if file_meta is None:
+            unresolved.append(file)
+            continue
+
+        if file_meta["title"] in album_meta["tracklist"]:
+            resolved_name = file_meta["title"]
+        else:
+            resolved_name = fix_track_name(file, file_meta, album_meta["tracklist"])
+            if not resolved_name:
+                unresolved.append(file)
+                continue
+        metachanges["track_title"] = resolved_name
+
+        if file_meta["artist"] != album_meta["artist_name"]:
+            metachanges["artist_name"] = album_meta["artist_name"]
+
+        if file_meta["album"] != album_meta["title"]:
+            metachanges["album_title"] = album_meta["title"]
+
+        if file_meta["track_num"] != album_meta["tracklist"].index(resolved_name)+1:
+            metachanges["track_number"] = album_meta["tracklist"].index(resolved_name)+1
+
+        if metachanges:
+            apply_meta(file, metachanges)
+            metachanges["check_state"] = 1
+            changed[file] = metachanges
+
+    return changed, unresolved
