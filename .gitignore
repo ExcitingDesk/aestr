@@ -3,5 +3,7 @@ __pycache__/
 dependencies.txt
 .venv/
 .idea
-env.py
+.env
 draft.py
+clean_aest.py
+logs/

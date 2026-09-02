@@ -29,17 +29,3 @@ class FileSysLibSource(LibrarySource):
                     current.rmdir()
                     print(f"Empty folder {current} deleted")
                     current = current.parent
-                    
-    def flag(self):
-        flagged_files = []
-        lib_root = Path(self.lib_path)
-
-        for folder in [lib_root, *lib_root.rglob("*")]:
-            if not folder.is_dir():
-                continue
-            audio_files = [f for f in folder.iterdir()
-                           if f.is_file() and f.suffix in [".mp3", ".wav"]]
-            if len(audio_files) < 4:
-                flagged_files.extend(f"{f}" for f in audio_files)
-
-        return flagged_files

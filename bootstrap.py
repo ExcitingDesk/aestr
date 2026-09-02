@@ -7,6 +7,8 @@ from desktop.filesystem_library_source import FileSysLibSource
 from interfaces.audio_backend import AudioBackend
 from interfaces.library_source import LibrarySource
 
+from clean_aest import clean_aest
+
 
 @dataclass
 class AppContext:
@@ -16,9 +18,12 @@ class AppContext:
 def bootstrap():
     _LIB_PATH = "/home/adam/Music/"
 
+    #clean_aest(_LIB_PATH)
+
     datab.init_db(_LIB_PATH)
     filesyslib = FileSysLibSource(datab.get_lib_path(), datab.get_local_path())
     library.sync_library(filesyslib)
+    #library.metafixer()
     search.init_cache()
 
     return AppContext(audio_backend=pygameAudioBackEnd(), library_source=filesyslib)

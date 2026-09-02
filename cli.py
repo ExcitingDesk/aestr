@@ -4,10 +4,11 @@ import library
 import search
 import bootstrap
 from player import Player
+import traceback
 
 PAGE_SIZE = 10
 DIVIDER = "─" * 50
-
+    
 
 class AestrCLI(cmd.Cmd):
     intro = "Type 'help' for commands."
@@ -134,6 +135,7 @@ class AestrCLI(cmd.Cmd):
             return super().onecmd(line)
         except Exception as e:
             print(f"Error: {e}")
+            traceback.print_exc()
             return False
 
     _HELP = {
@@ -146,6 +148,7 @@ class AestrCLI(cmd.Cmd):
             "queue    - View queue\n"
             "shuffle  - Shuffle queue\n"
             "sync     - Resync library\n"
+            "fix      - Fix library metadata\n"
             "exit     - Quit"
         ),
         "library_select": (
@@ -290,6 +293,18 @@ class AestrCLI(cmd.Cmd):
         library.sync_library(self.ctx.library_source)
         search.init_cache()
         print("Done.")
+
+    def do_fix(self, arg):
+        """fix — run the metadata fixer, then prune orphans"""
+        if self.mode != "main":
+            print("'fix' is only available on the main screen.")
+            return
+        print("Fixing metadata…")
+        unresolved = library.metafixer()
+        datab.clear_orphan_rows()
+        search.init_cache()
+        print("Done.")
+        print(f"Unresolved : {unresolved}")
 
     def do_search(self, arg):
         """search <query> — search the library"""

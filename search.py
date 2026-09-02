@@ -14,9 +14,9 @@ def init_cache():
     global _album_cache
     global _track_cache
 
-    _artist_cache = db.build_artist_cache()
-    _album_cache = db.build_album_cache()
-    _track_cache = db.build_track_cache()
+    _artist_cache = db.build_search_artist_cache()
+    _album_cache = db.build_search_album_cache()
+    _track_cache = db.build_search_track_cache()
 
 
 def search(query, search_type):

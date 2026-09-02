@@ -1,6 +1,9 @@
 import sqlite3
 import os
 from dataclasses import dataclass, field
+from logger import get_logger
+
+log = get_logger(__name__)
 
 """
 CHECK STATES :
@@ -10,9 +13,9 @@ CHECK STATES :
 """
 
 ALLOWED_COLUMNS = {
-    "tracks": {"title", "track_number", "path", "check_state", "album_id"},
-    "albums": {"title", "year", "check_state", "artist_id"},
-    "artists": {"name"},
+    "tracks": {"title", "display_title", "track_number", "path", "check_state", "album_id"},
+    "albums": {"title", "display_title", "year", "check_state", "artist_id"},
+    "artists": {"name", "display_name"},
     }
 
 @dataclass
@@ -36,6 +39,7 @@ class Track:
     title: str
     path: str
     album_id : str
+    audio_hash : str
     track_number: int=field(default=0)
 
 @dataclass
@@ -43,6 +47,7 @@ class FixerJob:
     album: Album
     artist_name: str
     track_paths: list[str]
+    tracklist: list[str]
 
 def init_db(lib_path):
     _LOCAL_PATH = f"{lib_path}aestr/"
@@ -76,8 +81,10 @@ def init_db(lib_path):
                         (id TEXT PRIMARY KEY,
                         title TEXT NOT NULL,
                         track_number INTEGER,
+                        length INTEGER,
                         path TEXT NOT NULL UNIQUE,
                         album_id TEXT NOT NULL,
+                        audio_hash TEXT,
                         check_state INTEGER NOT NULL DEFAULT 0,
                         FOREIGN KEY (album_id) REFERENCES albums(id));
 
@@ -100,39 +107,66 @@ def shut_conn():
 ################ BUILDERS ####################
 ##############################################
 
-def build_artist_cache():
+def build_search_artist_cache():
     cursor = conn.cursor()
     cursor.execute("SELECT id, display_name FROM artists")
     artists_cache = {row["id"]: row["display_name"] for row in cursor}
 
     return artists_cache
 
-def build_album_cache():
+def build_search_album_cache():
     cursor = conn.cursor()
     cursor.execute("SELECT id, display_title FROM albums")
     albums_cache = {row["id"]: row["display_title"] for row in cursor}
 
     return albums_cache
 
-def build_track_cache():
+def build_search_track_cache():
     cursor = conn.cursor()
     cursor.execute("SELECT id, title FROM tracks")
     tracks_cache = {row["id"]: row["title"] for row in cursor}
 
     return tracks_cache
 
+def build_sync_cache():
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id, name FROM artists")
+    artists_cache = {row["name"]: row["id"] for row in cursor}
+
+    cursor.execute("""
+        SELECT albums.id AS id, albums.title AS title, artists.name AS artist_name
+        FROM albums JOIN artists ON albums.artist_id = artists.id
+    """)
+    albums_cache = {(row["title"], row["artist_name"]): row["id"] for row in cursor}
+
+    cursor.execute("SELECT id, path, audio_hash FROM tracks")
+    track_paths = {}
+    track_hashes = {}
+    for row in cursor:
+        track_paths[row["path"]] = row["id"]
+        if row["audio_hash"]:
+            track_hashes[row["audio_hash"]] = row["id"]
+
+    return {
+        "artists": artists_cache,
+        "albums": albums_cache,
+        "track_paths": track_paths,
+        "track_hashes": track_hashes,
+    }
+
 def build_fixer_objects():
     def _get_tracks_from_album(alb_id):
         _cursor = conn.cursor()
-        _cursor.execute("SELECT id, path, track_number FROM tracks WHERE album_id=? ORDER BY track_number", (alb_id,))
-        return [r["path"] for r in _cursor.fetchall()]
+        _cursor.execute("SELECT path, display_title, length FROM tracks WHERE album_id=?", (alb_id,))
+        return [r["path"] for r in _cursor.fetchall()], [r["display_title"] for r in _cursor.fetchall()], [r["length"] for r in _cursor.fetchall()]
 
     def _get_artist_name(art_id):
         _cursor = conn.cursor()
-        _cursor.execute("SELECT name FROM artists WHERE id=?", (art_id,))
+        _cursor.execute("SELECT display_name FROM artists WHERE id=?", (art_id,))
         _row = _cursor.fetchone()
         if _row:
-            return _row["name"]
+            return _row["display_name"]
         return None
 
     cursor = conn.cursor()
@@ -140,10 +174,13 @@ def build_fixer_objects():
     rows = cursor.fetchall()
     if not rows:
         return None
+    
     return [FixerJob(
         album=Album(r["id"], r["title"], r["display_title"], r["artist_id"], r["year"]),
         artist_name=_get_artist_name(r["artist_id"]),
-        track_paths=_get_tracks_from_album(r["id"])) for r in rows]
+        track_paths=_get_tracks_from_album(r["id"])[0],
+        tracklist=_get_tracks_from_album(r["id"])[1],
+        track_lengths=_get_tracks_from_album(r["id"])[2]) for r in rows]
     
 ##############################################
 ################ GETTERS #####################
@@ -172,7 +209,9 @@ def get_track_info(track_id):
                                  "title": row["title"],
                                  "track_number": row["track_number"],
                                  "path": row["path"],
+                                 "length": row["length"],
                                  "album_id": row["album_id"],
+                                 "audio_hash": row["audio_hash"],
                                  "check_state": row["check_state"]}
 
 
@@ -227,22 +266,22 @@ def list_album_tracks(album_id):
 
 def add_batch_artists(content: list[tuple]) -> None:
     cursor = conn.cursor()
-    cursor.executemany("""INSERT OR REPLACE INTO 
+    cursor.executemany("""INSERT OR IGNORE INTO
                         artists (id, name, display_name) VALUES (?, ?, ?)"""
                        , content)
     conn.commit()
 
 def add_batch_albums(content: list[tuple]) -> None:
     cursor = conn.cursor()
-    cursor.executemany("""INSERT OR REPLACE INTO 
-                            albums (id, title, display_title, year, covered, artist_id) VALUES (?, ?, ?, ?, ?, ?)"""
+    cursor.executemany("""INSERT OR IGNORE INTO
+                            albums (id, title, display_title, year, artist_id, covered) VALUES (?, ?, ?, ?, ?, ?)"""
                             ,content)
     conn.commit()
 
 def add_batch_tracks(content: list[tuple]) -> None:
     cursor = conn.cursor()
-    cursor.executemany("""INSERT OR REPLACE INTO 
-                            tracks (id, title, track_number, path, album_id) VALUES (?, ?, ?, ?, ?)"""
+    cursor.executemany("""INSERT OR IGNORE INTO
+                            tracks (id, title, path, length, album_id, audio_hash, track_number) VALUES (?, ?, ?, ?, ?, ?, ?)"""
                             ,content)
     conn.commit()
 
@@ -274,9 +313,23 @@ def merge_artist(old_id, new_id):
         conn.execute("UPDATE albums SET artist_id = ? WHERE artist_id = ?", (new_id, old_id))
         conn.execute("DELETE FROM artists WHERE id = ?", (old_id,))
 
-def nuke():
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM artists")
-    cursor.execute("DELETE FROM albums")
-    cursor.execute("DELETE FROM tracks")
-    conn.commit()
+def clear_orphan_rows():
+    with conn:
+        fk_tracks = conn.execute(
+            "DELETE FROM tracks WHERE album_id NOT IN (SELECT id FROM albums)"
+        ).rowcount
+        fk_albums = conn.execute(
+            "DELETE FROM albums WHERE artist_id NOT IN (SELECT id FROM artists)"
+        ).rowcount
+        empty_albums = conn.execute(
+            "DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM tracks)"
+        ).rowcount
+        empty_artists = conn.execute(
+            "DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM albums)"
+        ).rowcount
+    log.info(
+        f"Orphan cleanup: {fk_tracks} FK-broken tracks, "
+        f"{fk_albums} FK-broken albums, "
+        f"{empty_albums} empty albums, "
+        f"{empty_artists} empty artists"
+    )
