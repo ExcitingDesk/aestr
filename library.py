@@ -1,113 +1,22 @@
 from mutagen.mp3 import MP3
 from interfaces.library_source import LibrarySource, TrackCandidate
 import metamanager as meta          # still used by stage_meta (extract_meta / extract_art)
-import new_metafixer as new_meta    # voting-based resolver + tag repair, used by metafixer()
+import new_metamanager as new_meta    # voting-based resolver + tag repair, used by metafixer()
 import lib_db as datab
 from lib_db import Album, Track, Artist
 import hashlib
 import re
 import uuid
-from difflib import SequenceMatcher
 
 from logger import get_logger
 
 log = get_logger(__name__)
-
-_ALBUM_MATCH_THRESHOLD = 0.90
-_ARTIST_COLLAPSED_MIN_LEN = 4
-
-_WS_RE = re.compile(r"\s+")
-
-_ARTIST_SPLIT_RE = re.compile(
-    r"\s*(?:[,&]|\bfeat\.?\b|\bft\.?\b|\bfeaturing\b|\band\b)\s*",
-    re.IGNORECASE,
-)
-
-_ALBUM_DECOR_WORDS = {
-    "remaster", "remastered", "deluxe", "expanded", "special",
-    "edition", "anniversary", "bonus", "track", "version",
-    "mono", "stereo", "explicit", "clean", "extended",
-}
-_YEAR_RE = re.compile(r"^\d{4}$")
-_ORDINAL_RE = re.compile(r"^\d+(?:st|nd|rd|th)$")
 
 def _normalize(name: str) -> str:
     name = name.lower()
     name = re.sub(r"[^a-z0-9àâæçéèêëïîôœùûüÿäößñ ]", "", name)
     return name
 
-def _strip_album_decor(album_norm: str) -> str:
-    if not album_norm:
-        return album_norm
-    stripped = album_norm.split()
-    while stripped and (
-        stripped[-1] in _ALBUM_DECOR_WORDS
-        or _YEAR_RE.match(stripped[-1])
-        or _ORDINAL_RE.match(stripped[-1])
-    ):
-        stripped.pop()
-    return " ".join(stripped) if stripped else album_norm
-
-def _tokenize_artist_raw(raw_name: str) -> frozenset:
-    parts = _ARTIST_SPLIT_RE.split(raw_name or "")
-    return frozenset(t for t in (_normalize(p).strip() for p in parts) if t)
-
-def _tokenize_artist_from_norm(norm_name: str) -> frozenset:
-    return frozenset([norm_name]) if norm_name else frozenset()
-
-def _collapse_ws(s: str) -> str:
-    return _WS_RE.sub("", s) if s else ""
-
-def _resolve_album(album_stripped, artist_id, artist_albums):
-    if not album_stripped:
-        return None
-    best_id, best_ratio = None, 0.0
-    for _album_norm, cached_stripped, cached_id in artist_albums.get(artist_id, []):
-        if not cached_stripped:
-            continue
-        if cached_stripped == album_stripped:
-            return cached_id
-        r = SequenceMatcher(None, cached_stripped, album_stripped).ratio()
-        if r >= _ALBUM_MATCH_THRESHOLD and r > best_ratio:
-            best_id, best_ratio = cached_id, r
-    return best_id
-
-def _resolve_artist_via_shared_album(incoming_tokens, incoming_norm, album_stripped, cache, artist_tokens, artist_albums):
-    if not album_stripped or (not incoming_tokens and not incoming_norm):
-        return None
-    incoming_collapsed = _collapse_ws(incoming_norm)
-    for cached_norm, cached_id in cache["artists"].items():
-        cached_tokens = artist_tokens.get(cached_id) or _tokenize_artist_from_norm(cached_norm)
-
-        matched = False
-
-        if incoming_tokens and cached_tokens:
-            smaller, larger = (
-                (incoming_tokens, cached_tokens)
-                if len(incoming_tokens) <= len(cached_tokens)
-                else (cached_tokens, incoming_tokens)
-            )
-            if smaller.issubset(larger):
-                matched = True
-
-        if not matched and incoming_collapsed:
-            cached_collapsed = _collapse_ws(cached_norm)
-            shorter, longer = (
-                (incoming_collapsed, cached_collapsed)
-                if len(incoming_collapsed) <= len(cached_collapsed)
-                else (cached_collapsed, incoming_collapsed)
-            )
-            if len(shorter) >= _ARTIST_COLLAPSED_MIN_LEN and shorter in longer:
-                matched = True
-
-        if not matched:
-            continue
-
-        shared_album_id = _resolve_album(album_stripped, cached_id, artist_albums)
-        if shared_album_id is not None:
-            return cached_id, shared_album_id
-    return None
-    
 def _gen_audio_hash(file_path) -> str:
     try:
         audio = MP3(file_path)
@@ -122,7 +31,7 @@ def _gen_audio_hash(file_path) -> str:
         return file_hash
     return None
 
-def stage_meta(candidate: TrackCandidate, cache, artist_albums, artist_tokens, audio_hash=None):
+def stage_meta(candidate: TrackCandidate, cache, audio_hash=None):
     metadata = meta.extract_meta(candidate)
 
     if metadata:
@@ -138,25 +47,17 @@ def stage_meta(candidate: TrackCandidate, cache, artist_albums, artist_tokens, a
 
         artist_norm = _normalize(artist)
         album_norm = _normalize(album)
-        album_stripped = _strip_album_decor(album_norm)
 
         track_id = uuid.uuid4().hex[:16]
 
         if artist_norm in cache["artists"]:
             artist_id = cache["artists"][artist_norm]
-            album_id = _resolve_album(album_stripped, artist_id, artist_albums)
+            album_id = cache["albums"].get((album_norm, artist_norm))
             if album_id is None:
                 album_id = uuid.uuid4().hex[:16]
         else:
-            incoming_tokens = _tokenize_artist_raw(artist)
-            merge = _resolve_artist_via_shared_album(
-                incoming_tokens, artist_norm, album_stripped, cache, artist_tokens, artist_albums
-            )
-            if merge:
-                artist_id, album_id = merge
-            else:
-                artist_id = uuid.uuid4().hex[:16]
-                album_id = uuid.uuid4().hex[:16]
+            artist_id = uuid.uuid4().hex[:16]
+            album_id = uuid.uuid4().hex[:16]
 
         return (Artist(id=artist_id, name=artist_norm, display_name=artist),
                 Album(id=album_id, title=album_norm, display_title=album, year=year, artist_id=artist_id, cover=False),
@@ -167,16 +68,6 @@ def sync_library(source: LibrarySource):
     cache = datab.build_sync_cache()
     known_paths = cache["track_paths"]
     known_hashes = cache["track_hashes"]
-
-    artist_albums = {}
-    for (album_norm, artist_norm), album_id in cache["albums"].items():
-        aid = cache["artists"].get(artist_norm)
-        if aid:
-            artist_albums.setdefault(aid, []).append(
-                (album_norm, _strip_album_decor(album_norm), album_id)
-            )
-
-    artist_tokens = {aid: _tokenize_artist_from_norm(n) for n, aid in cache["artists"].items()}
 
     artists, albums, tracks = {}, {}, {}
     path_repairs = []
@@ -192,17 +83,12 @@ def sync_library(source: LibrarySource):
             path_repairs.append((path, known_hashes[h]))
             continue
 
-        data = stage_meta(path, cache, artist_albums, artist_tokens, audio_hash=h)
+        data = stage_meta(path, cache, audio_hash=h)
         if data is None: continue
         artist, album, track = data[0], data[1], data[2]
 
         cache["artists"][artist.name] = artist.id
         cache["albums"][(album.title, artist.name)] = album.id
-        artist_tokens[artist.id] = artist_tokens.get(artist.id, frozenset()) | _tokenize_artist_raw(artist.display_name)
-        if album.id not in {aid for _, _, aid in artist_albums.get(artist.id, [])}:
-            artist_albums.setdefault(artist.id, []).append(
-                (album.title, _strip_album_decor(album.title), album.id)
-            )
 
         if not artist.id in artists.keys(): artists[artist.id]=artist
         if not album.id in albums.keys(): albums[album.id]=album
