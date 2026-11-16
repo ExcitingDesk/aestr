@@ -42,13 +42,6 @@ class Track:
     audio_hash : str
     track_number: int=field(default=0)
 
-@dataclass
-class FixerJob:
-    album: Album
-    artist_name: str
-    track_paths: list[str]
-    tracklist: list[str]
-
 def init_db(lib_path):
     _LOCAL_PATH = f"{lib_path}aestr/"
     _DB_PATH = f"{_LOCAL_PATH}aestr.db"
@@ -155,33 +148,6 @@ def build_sync_cache():
         "track_hashes": track_hashes,
     }
 
-def build_fixer_objects():
-    def _get_tracks_from_album(alb_id):
-        _cursor = conn.cursor()
-        _cursor.execute("SELECT path, display_title, length FROM tracks WHERE album_id=?", (alb_id,))
-        return [r["path"] for r in _cursor.fetchall()], [r["display_title"] for r in _cursor.fetchall()], [r["length"] for r in _cursor.fetchall()]
-
-    def _get_artist_name(art_id):
-        _cursor = conn.cursor()
-        _cursor.execute("SELECT display_name FROM artists WHERE id=?", (art_id,))
-        _row = _cursor.fetchone()
-        if _row:
-            return _row["display_name"]
-        return None
-
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, title, display_title, artist_id, year FROM albums WHERE check_state=?", (0,))
-    rows = cursor.fetchall()
-    if not rows:
-        return None
-    
-    return [FixerJob(
-        album=Album(r["id"], r["title"], r["display_title"], r["artist_id"], r["year"]),
-        artist_name=_get_artist_name(r["artist_id"]),
-        track_paths=_get_tracks_from_album(r["id"])[0],
-        tracklist=_get_tracks_from_album(r["id"])[1],
-        track_lengths=_get_tracks_from_album(r["id"])[2]) for r in rows]
-    
 ##############################################
 ################ GETTERS #####################
 ##############################################

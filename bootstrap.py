@@ -23,7 +23,6 @@ def bootstrap():
     datab.init_db(_LIB_PATH)
     filesyslib = FileSysLibSource(datab.get_lib_path(), datab.get_local_path())
     library.sync_library(filesyslib)
-    #library.metafixer()
     search.init_cache()
 
     return AppContext(audio_backend=pygameAudioBackEnd(), library_source=filesyslib)
